@@ -11,7 +11,7 @@ import (
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/sync"
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
-	ipld "github.com/ipfs/go-ipld-format"
+	ipldformat "github.com/ipfs/go-ipld-format"
 	"github.com/ipfs/go-merkledag"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -75,7 +75,7 @@ func main() {
 
 		cset := cid.NewSet()
 
-		getLinks := func(ctx context.Context, c cid.Cid) ([]*ipld.Link, error) {
+		getLinks := func(ctx context.Context, c cid.Cid) ([]*ipldformat.Link, error) {
 			if c.Type() == cid.Raw {
 				return nil, nil
 			}

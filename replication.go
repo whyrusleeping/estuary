@@ -26,11 +26,14 @@ import (
 	"github.com/ipfs/go-cid"
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	batched "github.com/ipfs/go-ipfs-provider/batched"
-	ipld "github.com/ipfs/go-ipld-format"
+	ipldformat "github.com/ipfs/go-ipld-format"
 	"github.com/ipfs/go-unixfs"
+	ipld "github.com/ipld/go-ipld-prime"
+	textselector "github.com/ipld/go-ipld-selector-text-lite"
 	"github.com/labstack/echo/v4"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/whyrusleeping/estuary/filclient"
+	"github.com/whyrusleeping/estuary/lib/retrievehelper"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/xerrors"
@@ -362,7 +365,7 @@ func (cm *ContentManager) aggregateContent(ctx context.Context, b *contentStagin
 	log.Info("aggregating contents in staging zone into new content")
 	dir := unixfs.EmptyDirNode()
 	for _, c := range b.Contents {
-		dir.AddRawLink(fmt.Sprintf("%d-%s", c.ID, c.Name), &ipld.Link{
+		dir.AddRawLink(fmt.Sprintf("%d-%s", c.ID, c.Name), &ipldformat.Link{
 			Size: uint64(c.Size),
 			Cid:  c.Cid.CID,
 		})
@@ -1842,7 +1845,8 @@ func (cm *ContentManager) retrieveContent(ctx context.Context, contentToFetch ui
 		close(prog.wait)
 	}()
 
-	if err := cm.runRetrieval(ctx, contentToFetch); err != nil {
+	_, err := cm.runRetrieval(ctx, contentToFetch)
+	if err != nil {
 		prog.endErr = err
 		return err
 	}
@@ -1850,39 +1854,66 @@ func (cm *ContentManager) retrieveContent(ctx context.Context, contentToFetch ui
 	return nil
 }
 
-func (cm *ContentManager) indexForAggregate(ctx context.Context, aggregateID, contID uint) (int, error) {
-	return 0, fmt.Errorf("selector based retrieval not yet implemented")
+func (cm *ContentManager) unixFsIndexPathForAggregate(ctx context.Context, aggregateID, contID uint) (textselector.Expression, error) {
+	var parts []Content
+	if err := cm.DB.Find(&parts, "aggregated_in = ?", aggregateID).Error; err != nil {
+		return "", err
+	}
+
+	sort.Slice(parts, func(i, j int) bool {
+		return parts[i].ID < parts[j].ID
+	})
+
+	index := -1
+	for i := 0; i < len(parts); i++ {
+		if parts[i].ID == contID {
+			index = i
+			break
+		}
+	}
+	if index == -1 {
+		return "", fmt.Errorf("could not find requested content ID in aggregate list")
+	}
+
+	return textselector.Expression(fmt.Sprintf("Link/%d/Hash", index)), nil
 }
 
-func (cm *ContentManager) runRetrieval(ctx context.Context, contentToFetch uint) error {
+func (cm *ContentManager) runRetrieval(ctx context.Context, contentToFetch uint) (cid.Cid, error) {
 	ctx, span := cm.tracer.Start(ctx, "runRetrieval")
 	defer span.End()
 
 	var content Content
 	if err := cm.DB.First(&content, contentToFetch).Error; err != nil {
-		return err
+		return cid.Undef, err
 	}
 
 	rootContent := content.ID
 
-	index := -1
-	if content.AggregatedIn > 0 {
-		rootContent = content.AggregatedIn
-		ix, err := cm.indexForAggregate(ctx, rootContent, contentToFetch)
-		if err != nil {
-			return err
-		}
-		index = ix
-	}
-	_ = index
-
 	var deals []contentDeal
 	if err := cm.DB.Find(&deals, "content = ? and not failed", contentToFetch).Error; err != nil {
-		return err
+		return cid.Undef, err
 	}
 
 	if len(deals) == 0 {
-		return xerrors.Errorf("no active deals for content %d we are trying to retrieve", contentToFetch)
+		return cid.Undef, xerrors.Errorf("no active deals for content %d we are trying to retrieve", contentToFetch)
+	}
+
+	var pathSelection textselector.Expression
+	var subselectDag ipld.Node
+	if content.AggregatedIn > 0 {
+		rootContent = content.AggregatedIn
+
+		var err error
+		pathSelection, err = cm.unixFsIndexPathForAggregate(ctx, rootContent, contentToFetch)
+		if err != nil {
+			return cid.Undef, err
+		}
+
+		selSpecDag, err := textselector.SelectorSpecFromPath(pathSelection, retrievehelper.RecurseAllSelectorBuilder)
+		if err != nil {
+			return cid.Undef, err
+		}
+		subselectDag = selSpecDag.Node()
 	}
 
 	// TODO: probably need some better way to pick miners to retrieve from...
@@ -1898,40 +1929,52 @@ func (cm *ContentManager) runRetrieval(ctx context.Context, contentToFetch uint)
 
 		log.Infow("attempting retrieval deal", "content", contentToFetch, "miner", maddr)
 
-		ask, err := cm.FilClient.RetrievalQuery(ctx, maddr, content.Cid.CID)
+		ask, err := cm.FilClient.RetrievalQuery(ctx, maddr, content.Cid.CID, subselectDag)
 		if err != nil {
 			span.RecordError(err)
 
 			log.Errorw("failed to query retrieval", "miner", maddr, "content", content.Cid.CID, "err", err)
 			cm.recordRetrievalFailure(&retrievalFailureRecord{
-				Miner:   maddr.String(),
-				Phase:   "query",
-				Message: err.Error(),
-				Content: content.ID,
-				Cid:     content.Cid,
+				Miner:         maddr.String(),
+				Phase:         "query",
+				Message:       err.Error(),
+				Content:       content.ID,
+				Cid:           content.Cid,
+				PathSelection: string(pathSelection),
 			})
 			continue
 		}
-		log.Infow("got retrieval ask", "content", content, "miner", maddr, "ask", ask)
+		log.Infow("got retrieval ask", "content", content, "pathSelection", pathSelection, "miner", maddr, "ask", ask)
 
-		if err := cm.tryRetrieve(ctx, maddr, content.Cid.CID, ask); err != nil {
+		if err := cm.tryRetrieve(ctx, maddr, content.Cid.CID, subselectDag, ask); err != nil {
 			span.RecordError(err)
-			log.Errorw("failed to retrieve content", "miner", maddr, "content", content.Cid.CID, "err", err)
+			log.Errorw("failed to retrieve content", "miner", maddr, "content", content.Cid.CID, "pathSelection", pathSelection, "err", err)
 			cm.recordRetrievalFailure(&retrievalFailureRecord{
-				Miner:   maddr.String(),
-				Phase:   "retrieval",
-				Message: err.Error(),
-				Content: content.ID,
-				Cid:     content.Cid,
+				Miner:         maddr.String(),
+				Phase:         "retrieval",
+				Message:       err.Error(),
+				Content:       content.ID,
+				Cid:           content.Cid,
+				PathSelection: string(pathSelection),
 			})
 			continue
 		}
 
 		// success
-		return nil
+		rootCid := content.Cid.CID
+
+		// we sub-selected: need to find the new root
+		if pathSelection != "" {
+			rootCid, err = retrievehelper.ResolvePath(ctx, cm.Blockstore, rootCid, pathSelection)
+			if err != nil {
+				return cid.Undef, err
+			}
+		}
+
+		return rootCid, nil
 	}
 
-	return fmt.Errorf("failed to retrieve with any miner we have deals with")
+	return cid.Undef, fmt.Errorf("failed to retrieve with any miner we have deals with")
 }
 
 func (s *Server) handleFixupDeals(c echo.Context) error {

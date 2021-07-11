@@ -9,10 +9,10 @@ require (
 	github.com/filecoin-project/go-bs-lmdb v1.0.5
 	github.com/filecoin-project/go-cbor-util v0.0.0-20191219014500-08c40a1e63a2
 	github.com/filecoin-project/go-commp-utils v0.1.1-0.20210427191551-70bf140d31c7
-	github.com/filecoin-project/go-data-transfer v1.6.0
+	github.com/filecoin-project/go-data-transfer v1.6.1-0.20210601213510-73edd813d563
 	github.com/filecoin-project/go-fil-commcid v0.0.0-20201016201715-d41df56b4f6a
 	github.com/filecoin-project/go-fil-commp-hashhash v0.1.0
-	github.com/filecoin-project/go-fil-markets v1.5.0
+	github.com/filecoin-project/go-fil-markets v1.5.1-0.20210630085438-c79fd6bcae82
 	github.com/filecoin-project/go-padreader v0.0.0-20200903213702-ed5fae088b20
 	github.com/filecoin-project/go-state-types v0.1.1-0.20210506134452-99b279731c48
 	github.com/filecoin-project/lotus v1.10.1
@@ -25,7 +25,7 @@ require (
 	github.com/ipfs/go-cid v0.0.7
 	github.com/ipfs/go-datastore v0.4.5
 	github.com/ipfs/go-ds-leveldb v0.4.2
-	github.com/ipfs/go-graphsync v0.6.3
+	github.com/ipfs/go-graphsync v0.8.0
 	github.com/ipfs/go-ipfs-blockstore v1.0.4
 	github.com/ipfs/go-ipfs-chunker v0.0.5
 	github.com/ipfs/go-ipfs-exchange-interface v0.0.1
@@ -35,7 +35,10 @@ require (
 	github.com/ipfs/go-log v1.0.5
 	github.com/ipfs/go-merkledag v0.3.2
 	github.com/ipfs/go-unixfs v0.2.4
-	github.com/ipld/go-car v0.1.1-0.20201119040415-11b6074b6d4d
+	github.com/ipld/go-car v0.3.1-0.20210601190600-f512dac51e8e
+	github.com/ipld/go-codec-dagpb v1.2.0
+	github.com/ipld/go-ipld-prime v0.10.0
+	github.com/ipld/go-ipld-selector-text-lite v0.0.0-20210628040245-3e31f047c85c
 	github.com/labstack/echo/v4 v4.2.0
 	github.com/libp2p/go-libp2p v0.14.2
 	github.com/libp2p/go-libp2p-connmgr v0.2.4
@@ -65,3 +68,5 @@ replace github.com/libp2p/go-libp2p-yamux => github.com/libp2p/go-libp2p-yamux v
 replace github.com/filecoin-project/lotus => ../lotus
 
 replace github.com/filecoin-project/filecoin-ffi => ../lotus/extern/filecoin-ffi
+
+replace github.com/whyrusleeping/estuary => ./

@@ -30,7 +30,7 @@ import (
 	chunker "github.com/ipfs/go-ipfs-chunker"
 	exchange "github.com/ipfs/go-ipfs-exchange-interface"
 	offline "github.com/ipfs/go-ipfs-exchange-offline"
-	ipld "github.com/ipfs/go-ipld-format"
+	ipldformat "github.com/ipfs/go-ipld-format"
 	"github.com/ipfs/go-merkledag"
 	"github.com/ipfs/go-unixfs/importer"
 	uio "github.com/ipfs/go-unixfs/io"
@@ -622,7 +622,7 @@ func (s *Server) handleAdd(c echo.Context, u *User) error {
 	return c.JSON(200, map[string]string{"cid": nd.Cid().String()})
 }
 
-func (s *Server) importFile(ctx context.Context, dserv ipld.DAGService, fi io.Reader) (ipld.Node, error) {
+func (s *Server) importFile(ctx context.Context, dserv ipldformat.DAGService, fi io.Reader) (ipldformat.Node, error) {
 	_, span := s.tracer.Start(ctx, "importFile")
 	defer span.End()
 
@@ -630,7 +630,7 @@ func (s *Server) importFile(ctx context.Context, dserv ipld.DAGService, fi io.Re
 	return importer.BuildDagFromReader(dserv, spl)
 }
 
-func (s *Server) addDatabaseTrackingToContent(ctx context.Context, cont uint, dserv ipld.NodeGetter, bs blockstore.Blockstore, root cid.Cid) error {
+func (s *Server) addDatabaseTrackingToContent(ctx context.Context, cont uint, dserv ipldformat.NodeGetter, bs blockstore.Blockstore, root cid.Cid) error {
 	ctx, span := s.tracer.Start(ctx, "computeObjRefsUpdate")
 	defer span.End()
 
@@ -638,7 +638,7 @@ func (s *Server) addDatabaseTrackingToContent(ctx context.Context, cont uint, ds
 	var totalSize int64
 	cset := cid.NewSet()
 
-	err := merkledag.Walk(ctx, func(ctx context.Context, c cid.Cid) ([]*ipld.Link, error) {
+	err := merkledag.Walk(ctx, func(ctx context.Context, c cid.Cid) ([]*ipldformat.Link, error) {
 		node, err := dserv.Get(ctx, c)
 		if err != nil {
 			return nil, err
@@ -691,7 +691,7 @@ func (s *Server) addDatabaseTrackingToContent(ctx context.Context, cont uint, ds
 	return nil
 }
 
-func (s *Server) addDatabaseTracking(ctx context.Context, u *User, dserv ipld.NodeGetter, bs blockstore.Blockstore, root cid.Cid, fname string, replication int) (*Content, error) {
+func (s *Server) addDatabaseTracking(ctx context.Context, u *User, dserv ipldformat.NodeGetter, bs blockstore.Blockstore, root cid.Cid, fname string, replication int) (*Content, error) {
 	ctx, span := s.tracer.Start(ctx, "computeObjRefs")
 	defer span.End()
 
@@ -699,7 +699,7 @@ func (s *Server) addDatabaseTracking(ctx context.Context, u *User, dserv ipld.No
 	var totalSize int64
 	cset := cid.NewSet()
 
-	err := merkledag.Walk(ctx, func(ctx context.Context, c cid.Cid) ([]*ipld.Link, error) {
+	err := merkledag.Walk(ctx, func(ctx context.Context, c cid.Cid) ([]*ipldformat.Link, error) {
 		node, err := dserv.Get(ctx, c)
 		if err != nil {
 			return nil, err
@@ -2662,7 +2662,7 @@ func (s *Server) handleContentHealthCheck(c echo.Context) error {
 	dserv := merkledag.NewDAGService(bserv)
 
 	cset := cid.NewSet()
-	err = merkledag.Walk(c.Request().Context(), func(ctx context.Context, c cid.Cid) ([]*ipld.Link, error) {
+	err = merkledag.Walk(c.Request().Context(), func(ctx context.Context, c cid.Cid) ([]*ipldformat.Link, error) {
 		node, err := dserv.Get(ctx, c)
 		if err != nil {
 			return nil, err

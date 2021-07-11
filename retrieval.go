@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"time"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-fil-markets/retrievalmarket"
 	"github.com/ipfs/go-cid"
+	ipld "github.com/ipld/go-ipld-prime"
 	"github.com/whyrusleeping/estuary/filclient"
+	"github.com/whyrusleeping/estuary/lib/retrievehelper"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
@@ -39,7 +40,10 @@ func (s *Server) retrievalAsksForContent(ctx context.Context, contid uint) (map[
 			return nil, err
 		}
 
-		resp, err := s.FilClient.RetrievalQuery(ctx, maddr, content.Cid.CID)
+		// FIXME - find a way to pass this down through the API?
+		var optionalCompiledDagSelector ipld.Node
+
+		resp, err := s.FilClient.RetrievalQuery(ctx, maddr, content.Cid.CID, optionalCompiledDagSelector)
 		if err != nil {
 			s.CM.recordRetrievalFailure(&retrievalFailureRecord{
 				Miner:   maddr.String(),
@@ -60,11 +64,12 @@ func (s *Server) retrievalAsksForContent(ctx context.Context, contid uint) (map[
 
 type retrievalFailureRecord struct {
 	gorm.Model
-	Miner   string `json:"miner"`
-	Phase   string `json:"phase"`
-	Message string `json:"message"`
-	Content uint   `json:"content"`
-	Cid     dbCID  `json:"cid"`
+	Miner         string `json:"miner"`
+	Phase         string `json:"phase"`
+	Message       string `json:"message"`
+	Content       uint   `json:"content"`
+	PathSelection string `json:"selection"`
+	Cid           dbCID  `json:"cid"`
 }
 
 func (cm *ContentManager) recordRetrievalFailure(rfr *retrievalFailureRecord) error {
@@ -93,8 +98,11 @@ func (s *Server) retrieveContent(ctx context.Context, contid uint) error {
 		return fmt.Errorf("no retrieval asks for content")
 	}
 
+	// FIXME - find a way to pass this down through the API?
+	var optionalCompiledDagSelector ipld.Node
+
 	for m, ask := range asks {
-		if err := s.CM.tryRetrieve(ctx, m, content.Cid.CID, ask); err != nil {
+		if err := s.CM.tryRetrieve(ctx, m, content.Cid.CID, optionalCompiledDagSelector, ask); err != nil {
 			log.Errorw("failed to retrieve content", "miner", m, "content", content.Cid.CID, "err", err)
 			s.CM.recordRetrievalFailure(&retrievalFailureRecord{
 				Miner:   m.String(),
@@ -112,18 +120,10 @@ func (s *Server) retrieveContent(ctx context.Context, contid uint) error {
 	return nil
 }
 
-func (cm *ContentManager) tryRetrieve(ctx context.Context, maddr address.Address, c cid.Cid, ask *retrievalmarket.QueryResponse) error {
-	proposal := &retrievalmarket.DealProposal{
-		PayloadCID: c,
-		ID:         retrievalmarket.DealID(rand.Int63n(1000000) + 100000),
-		Params: retrievalmarket.Params{
-			Selector:                nil,
-			PieceCID:                nil,
-			PricePerByte:            ask.MinPricePerByte,
-			PaymentInterval:         ask.MaxPaymentInterval,
-			PaymentIntervalIncrease: ask.MaxPaymentIntervalIncrease,
-			UnsealPrice:             ask.UnsealPrice,
-		},
+func (cm *ContentManager) tryRetrieve(ctx context.Context, maddr address.Address, c cid.Cid, optionalSelector ipld.Node, ask *retrievalmarket.QueryResponse) error {
+	proposal, err := retrievehelper.RetrievalProposalForAsk(ask, c, optionalSelector)
+	if err != nil {
+		return err
 	}
 
 	stats, err := cm.FilClient.RetrieveContent(ctx, maddr, proposal)

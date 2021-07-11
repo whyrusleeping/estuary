@@ -39,6 +39,7 @@ import (
 	storeutil "github.com/ipfs/go-graphsync/storeutil"
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	logging "github.com/ipfs/go-log"
+	ipld "github.com/ipld/go-ipld-prime"
 	"github.com/libp2p/go-libp2p-core/host"
 	inet "github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -106,10 +107,10 @@ func NewClient(h host.Host, api api.Gateway, w *wallet.LocalWallet, addr address
 		return nil, err
 	}
 
-	gse := graphsync.New(context.Background(),
+	gse := graphsync.New(
+		context.Background(),
 		gsnet.NewFromLibp2pHost(h),
-		storeutil.LoaderForBlockstore(bs),
-		storeutil.StorerForBlockstore(bs),
+		storeutil.LinkSystemForBlockstore(bs),
 		graphsync.MaxInProgressRequests(200),
 	)
 
@@ -760,7 +761,7 @@ func (fc *FilClient) CheckOngoingTransfer(ctx context.Context, miner address.Add
 
 }
 
-func (fc *FilClient) RetrievalQuery(ctx context.Context, maddr address.Address, pcid cid.Cid) (*retrievalmarket.QueryResponse, error) {
+func (fc *FilClient) RetrievalQuery(ctx context.Context, maddr address.Address, pcid cid.Cid, optionalSelectorCurrentlyIgnored ipld.Node) (*retrievalmarket.QueryResponse, error) {
 	ctx, span := Tracer.Start(ctx, "retrievalQuery", trace.WithAttributes(
 		attribute.Stringer("miner", maddr),
 	))
@@ -864,9 +865,16 @@ func (fc *FilClient) RetrieveContent(ctx context.Context, miner address.Address,
 		return nil, xerrors.Errorf("failed to allocate lane: %w", err)
 	}
 
-	// Use the data transfer protocol to propose the retrieval deal
 	sel := shared.AllSelector()
+	if proposal.SelectorSpecified() {
+		var err error
+		sel, err = retrievalmarket.DecodeNode(proposal.Selector)
+		if err != nil {
+			return nil, xerrors.Errorf("selector is invalid: %w", err)
+		}
+	}
 	var vouch datatransfer.Voucher = proposal
+	// Use the data transfer protocol to propose the retrieval deal
 	chanid, err := fc.dataTransfer.OpenPullDataChannel(ctx, mpid, vouch, proposal.PayloadCID, sel)
 	if err != nil {
 		return nil, err
