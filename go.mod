@@ -36,6 +36,7 @@ require (
 	github.com/ipfs/go-merkledag v0.3.2
 	github.com/ipfs/go-unixfs v0.2.4
 	github.com/ipld/go-car v0.1.1-0.20201119040415-11b6074b6d4d
+	github.com/ipld/go-ipld-prime v0.5.1-0.20201021195245-109253e8a018
 	github.com/labstack/echo/v4 v4.2.0
 	github.com/libp2p/go-libp2p v0.14.2
 	github.com/libp2p/go-libp2p-connmgr v0.2.4
@@ -68,3 +69,5 @@ replace github.com/libp2p/go-libp2p-yamux => github.com/libp2p/go-libp2p-yamux v
 replace github.com/filecoin-project/lotus => ../lotus
 
 replace github.com/filecoin-project/filecoin-ffi => ../lotus/extern/filecoin-ffi
+
+replace github.com/whyrusleeping/estuary => ./

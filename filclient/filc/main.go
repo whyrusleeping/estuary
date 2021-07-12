@@ -3,14 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"time"
 
 	"github.com/filecoin-project/go-address"
 	cborutil "github.com/filecoin-project/go-cbor-util"
 	datatransfer "github.com/filecoin-project/go-data-transfer"
-	"github.com/filecoin-project/go-fil-markets/retrievalmarket"
 	"github.com/filecoin-project/go-fil-markets/storagemarket"
 	"github.com/filecoin-project/lotus/chain/types"
 	lcli "github.com/filecoin-project/lotus/cli"
@@ -22,6 +20,7 @@ import (
 	"github.com/ipfs/go-unixfs/importer"
 	"github.com/mitchellh/go-homedir"
 	cli "github.com/urfave/cli/v2"
+	"github.com/whyrusleeping/estuary/lib/retrievehelper"
 	"golang.org/x/xerrors"
 )
 
@@ -352,7 +351,7 @@ var retrieveFileCmd = &cli.Command{
 			return fmt.Errorf("must specify a miner with --miner")
 		}
 
-		cid, err := cid.Decode(cidStr)
+		c, err := cid.Decode(cidStr)
 		if err != nil {
 			return err
 		}
@@ -370,23 +369,17 @@ var retrieveFileCmd = &cli.Command{
 		}
 		defer closer()
 
-		query, err := fc.RetrievalQuery(ctx, miner, cid)
+		ask, err := fc.RetrievalQuery(ctx, miner, c)
 		if err != nil {
 			return err
 		}
 
-		stats, err := fc.RetrieveContent(ctx, miner, &retrievalmarket.DealProposal{
-			PayloadCID: cid,
-			ID:         retrievalmarket.DealID(rand.Int63n(1000000) + 100000),
-			Params: retrievalmarket.Params{
-				Selector:                nil,
-				PieceCID:                nil,
-				PricePerByte:            query.MinPricePerByte,
-				PaymentInterval:         query.MaxPaymentInterval,
-				PaymentIntervalIncrease: query.MaxPaymentIntervalIncrease,
-				UnsealPrice:             query.UnsealPrice,
-			},
-		})
+		proposal, err := retrievehelper.RetrievalProposalForAsk(ask, c, nil)
+		if err != nil {
+			return err
+		}
+
+		stats, err := fc.RetrieveContent(ctx, miner, proposal)
 		if err != nil {
 			return err
 		}
